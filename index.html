@@ -60,6 +60,7 @@
   const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_4K42_1Ut-Svhtk3wWjqrAg_cb-5dTHw";
   const client = window.supabase.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
   const $ = id => document.getElementById(id);
+
   let activeCode = "";
   let playerId = "";
   let playerName = "";
@@ -76,38 +77,66 @@
   function getPlayerId() {
     const key = "wos_mobile_player_id_v1";
     let id = localStorage.getItem(key);
+
     if (!id) {
       id = (crypto.randomUUID ? crypto.randomUUID() : "p-" + Math.random().toString(36).slice(2) + Date.now().toString(36));
       localStorage.setItem(key, id);
     }
+
     return id;
   }
 
   async function callGameFunction(payload) {
     const { data, error } = await client.functions.invoke("super-service", { body: payload });
-    if (error) throw new Error((data && data.error) || error.message || "Could not contact the game server.");
-    if (data && data.error) throw new Error(data.error);
+
+    if (error) {
+      throw new Error((data && data.error) || error.message || "Could not contact the game server.");
+    }
+
+    if (data && data.error) {
+      throw new Error(data.error);
+    }
+
     return data;
   }
 
   function showRound(session, announce = false) {
     const nextRoundId = session.round_id || "";
-    const letters = session.board_letters || session.board_root || "";
+
+    // Use only the shuffled letters sent by the overlay.
+    // Do not fall back to board_root, which is the unsorted root word.
+    const letters = session.board_letters || "";
+
     if (nextRoundId && nextRoundId !== currentRoundId) {
       currentRoundId = nextRoundId;
       $("word-input").value = "";
-      if (announce && letters) setStatus("New round! The board has been updated.");
+
+      if (announce && letters) {
+        setStatus("New round! The board has been updated.");
+      }
     }
+
     $("letters").textContent = letters || "WAITING FOR ROUND…";
     $("submit-button").disabled = !letters || sessionEnded;
   }
 
   async function refreshSession(quiet = true) {
     if (!activeCode || sessionEnded) return;
+
     try {
-      const session = await callGameFunction({ action: "get_session", join_code: activeCode });
-      if (!session || session.status !== "active") throw new Error("This game has ended.");
-      const changed = !!session.round_id && session.round_id !== currentRoundId;
+      const session = await callGameFunction({
+        action: "get_session",
+        join_code: activeCode
+      });
+
+      if (!session || session.status !== "active") {
+        throw new Error("This game has ended.");
+      }
+
+      const changed =
+        !!session.round_id &&
+        session.round_id !== currentRoundId;
+
       showRound(session, changed);
     } catch (error) {
       if (/no longer active|game not found|game has ended/i.test(error.message)) {
@@ -124,25 +153,52 @@
   async function joinGame() {
     const code = $("join-code").value.trim().toUpperCase();
     const name = $("player-name").value.trim();
-    if (!/^[A-Z2-9]{6}$/.test(code)) return setStatus("Enter the six-character game code from the stream.", true);
-    if (!name) return setStatus("Enter a player name.", true);
-    if (name.length > 24) return setStatus("Player names must be 24 characters or fewer.", true);
+
+    if (!/^[A-Z2-9]{6}$/.test(code)) {
+      return setStatus("Enter the six-character game code from the stream.", true);
+    }
+
+    if (!name) {
+      return setStatus("Enter a player name.", true);
+    }
+
+    if (name.length > 24) {
+      return setStatus("Player names must be 24 characters or fewer.", true);
+    }
 
     $("join-button").disabled = true;
     setStatus("Connecting to the game…");
+
     try {
-      const session = await callGameFunction({ action: "get_session", join_code: code });
-      if (!session || session.status !== "active") throw new Error("That game is not active. Wait for the streamer to start a round.");
+      const session = await callGameFunction({
+        action: "get_session",
+        join_code: code
+      });
+
+      if (!session || session.status !== "active") {
+        throw new Error("That game is not active. Wait for the streamer to start a round.");
+      }
+
       activeCode = code;
       playerName = name;
       playerId = getPlayerId();
+
       localStorage.setItem("wos_mobile_player_name_v1", playerName);
+
       $("game-code").textContent = code;
       $("join-panel").classList.add("hidden");
       $("game-panel").classList.remove("hidden");
+
       showRound(session);
-      setStatus(session.board_letters || session.board_root ? "You're in! Find words and submit them here." : "You're connected. Waiting for the streamer to start the first round…");
+
+      setStatus(
+        session.board_letters
+          ? "You're in! Find words and submit them here."
+          : "You're connected. Waiting for the streamer to start the first round…"
+      );
+
       $("word-input").focus();
+
       clearInterval(pollTimer);
       pollTimer = setInterval(() => refreshSession(true), 2500);
     } catch (error) {
@@ -154,16 +210,28 @@
 
   async function submitWord() {
     if (submitting || sessionEnded) return;
+
     const word = $("word-input").value.trim().toUpperCase();
-    if (!word) return setStatus("Type a word first.", true);
-    if (!/^[A-Z]{2,12}$/.test(word)) return setStatus("Use letters only.", true);
-    if (!$("letters").textContent || $("letters").textContent === "WAITING FOR ROUND…") {
+
+    if (!word) {
+      return setStatus("Type a word first.", true);
+    }
+
+    if (!/^[A-Z]{2,12}$/.test(word)) {
+      return setStatus("Use letters only.", true);
+    }
+
+    if (
+      !$("letters").textContent ||
+      $("letters").textContent === "WAITING FOR ROUND…"
+    ) {
       return setStatus("Wait for the next round to begin.", true);
     }
 
     submitting = true;
     $("submit-button").disabled = true;
     setStatus("Submitting " + word + "…");
+
     try {
       const result = await callGameFunction({
         action: "submit_word",
@@ -172,28 +240,49 @@
         player_name: playerName,
         word
       });
+
       if (result && result.success) {
         $("word-input").value = "";
         setStatus("Accepted: " + (result.word || word) + "!");
       } else {
         setStatus((result && result.error) || "The word was not accepted.", true);
       }
+
       $("word-input").focus();
     } catch (error) {
       setStatus(error.message || "Submission failed. Try again.", true);
     } finally {
       submitting = false;
-      $("submit-button").disabled = sessionEnded || $("letters").textContent === "WAITING FOR ROUND…";
+
+      $("submit-button").disabled =
+        sessionEnded ||
+        $("letters").textContent === "WAITING FOR ROUND…";
     }
   }
 
   $("join-button").addEventListener("click", joinGame);
   $("submit-button").addEventListener("click", submitWord);
-  $("player-name").value = localStorage.getItem("wos_mobile_player_name_v1") || "";
-  $("player-name").addEventListener("change", () => localStorage.setItem("wos_mobile_player_name_v1", $("player-name").value.trim()));
-  $("word-input").addEventListener("keydown", event => { if (event.key === "Enter") submitWord(); });
-  $("join-code").value = new URLSearchParams(location.search).get("code") || "";
-  $("player-name").addEventListener("keydown", event => { if (event.key === "Enter") joinGame(); });
+
+  $("player-name").value =
+    localStorage.getItem("wos_mobile_player_name_v1") || "";
+
+  $("player-name").addEventListener("change", () => {
+    localStorage.setItem(
+      "wos_mobile_player_name_v1",
+      $("player-name").value.trim()
+    );
+  });
+
+  $("word-input").addEventListener("keydown", event => {
+    if (event.key === "Enter") submitWord();
+  });
+
+  $("join-code").value =
+    new URLSearchParams(location.search).get("code") || "";
+
+  $("player-name").addEventListener("keydown", event => {
+    if (event.key === "Enter") joinGame();
+  });
 })();
 </script>
 </body>
