@@ -91,11 +91,65 @@
     const { data, error } = await client.functions.invoke("super-service", { body: payload });
 
     if (error) {
-      throw new Error((data && data.error) || error.message || "Could not contact the game server.");
+      let serverMessage = (data && (data.error || data.message)) || "";
+      let statusCode = error.context && error.context.status;
+
+      // Supabase FunctionsHttpError keeps the response body in context.
+      // Read it so expected game responses can be translated into player-friendly text.
+      if (error.context && typeof error.context.clone === "function") {
+        try {
+          const response = error.context.clone();
+          statusCode = response.status || statusCode;
+          const body = await response.json();
+          serverMessage = body.error || body.message || body.details || serverMessage;
+        } catch (_) {
+          // The response may have no JSON body; use the status/message below.
+        }
+      }
+
+      const message = String(serverMessage || error.message || "");
+
+      if (
+        payload.action === "submit_word" &&
+        (statusCode === 400 || /word is not on this board|word not found|invalid word/i.test(message))
+      ) {
+        throw new Error("Word not found. Try another word!");
+      }
+
+      if (
+        (payload.action === "submit_word" || payload.action === "get_session") &&
+        (statusCode === 409 || /next round is not ready|round is not ready/i.test(message))
+      ) {
+        throw new Error("Waiting for host to restart the next round…");
+      }
+
+      if (/game not found|no longer active|game has ended/i.test(message)) {
+        throw new Error("This game has ended.");
+      }
+
+      // Never expose the generic Supabase "Edge Function returned a non-2xx status code".
+      if (/edge function returned a non-2xx status code/i.test(message) || !message) {
+        throw new Error("Couldn't reach the game server. Please try again.");
+      }
+
+      throw new Error(message);
     }
 
     if (data && data.error) {
-      throw new Error(data.error);
+      const message = String(data.error);
+
+      if (
+        payload.action === "submit_word" &&
+        /word is not on this board|word not found|invalid word/i.test(message)
+      ) {
+        throw new Error("Word not found. Try another word!");
+      }
+
+      if (/next round is not ready|round is not ready/i.test(message)) {
+        throw new Error("Waiting for host to restart the next round…");
+      }
+
+      throw new Error(message);
     }
 
     return data;
@@ -119,6 +173,12 @@
 
     $("letters").textContent = letters || "WAITING FOR ROUND…";
     $("submit-button").disabled = !letters || sessionEnded;
+
+    if (!letters && !sessionEnded) {
+      setStatus("Waiting for host to restart the next round…");
+    } else if (letters && announce) {
+      setStatus("New round! The board has been updated.");
+    }
   }
 
   async function refreshSession(quiet = true) {
@@ -197,7 +257,7 @@
       setStatus(
         session.board_letters
           ? "You're in! Find words and submit them here."
-          : "You're connected. Waiting for the streamer to start the first round…"
+          : "Connected! Waiting for host to restart the next round…"
       );
 
       $("word-input").focus();
@@ -242,7 +302,7 @@
       $("join-panel").classList.add("hidden");
       $("game-panel").classList.remove("hidden");
       showRound(session);
-      setStatus(session.board_letters ? "Reconnected! You're back in the game." : "Reconnected. Waiting for the next round…");
+      setStatus(session.board_letters ? "Reconnected! You're back in the game." : "Reconnected. Waiting for host to restart the next round…");
       clearInterval(pollTimer);
       pollTimer = setInterval(() => refreshSession(true), 2500);
     } catch (error) {
@@ -292,7 +352,7 @@
 
       $("word-input").focus();
     } catch (error) {
-      setStatus(error.message || "Submission failed. Try again.", true);
+      setStatus(error.message || "Couldn't submit that word. Please try again.", true);
     } finally {
       submitting = false;
 
