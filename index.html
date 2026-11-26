@@ -111,6 +111,13 @@
 
       if (
         payload.action === "submit_word" &&
+        /already been submitted this round|already submitted this round|word already found/i.test(message)
+      ) {
+        throw new Error("Word already found! Try another word.");
+      }
+
+      if (
+        payload.action === "submit_word" &&
         (statusCode === 400 || /word is not on this board|word not found|invalid word/i.test(message))
       ) {
         throw new Error("Word not found. Try another word!");
