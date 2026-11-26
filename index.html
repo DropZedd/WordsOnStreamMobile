@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#240754">
+  <title>Words With Zedd — Mobile Player</title>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <style>
+    :root{color-scheme:dark;--bg:#17052f;--panel:#26094d;--accent:#8b3dff;--cyan:#67e8f9;--yellow:#fde047}
+    *{box-sizing:border-box}
+    body{margin:0;min-height:100vh;padding:22px 16px;background:radial-gradient(circle at 50% 0,#4c1d95,var(--bg) 65%);font-family:Nunito,system-ui,sans-serif;color:#fff;display:flex;justify-content:center;align-items:flex-start}
+    main{width:min(100%,480px);background:rgba(20,4,44,.94);border:3px solid var(--accent);border-radius:24px;padding:22px;box-shadow:0 12px 35px #0008}
+    h1{font-size:clamp(27px,7vw,38px);line-height:1;margin:0;text-align:center;font-weight:1000}
+    .sub{text-align:center;color:var(--cyan);font-weight:800;margin:8px 0 22px}
+    label{display:block;font-weight:900;margin:14px 0 6px}
+    input{width:100%;padding:14px;border:2px solid #6b21a8;border-radius:12px;background:#120326;color:white;font:700 18px inherit;outline:none}
+    input:focus{border-color:var(--cyan)}
+    button{width:100%;padding:15px;border:0;border-radius:12px;background:linear-gradient(90deg,#7e22ce,#9333ea);color:white;font-size:17px;font-weight:1000;cursor:pointer;margin-top:14px}
+    button:disabled{opacity:.5;cursor:not-allowed}
+    .panel{margin-top:18px;padding:16px;border-radius:16px;background:#120326;border:1px solid #55218a}
+    .hidden{display:none!important}
+    #letters{font-size:clamp(27px,9vw,42px);font-weight:1000;letter-spacing:.18em;text-align:center;color:var(--yellow);padding:12px 0;overflow-wrap:anywhere}
+    #status{min-height:24px;margin-top:14px;text-align:center;font-weight:800;color:var(--cyan)}
+    .hint{font-size:13px;color:#c4b5fd;text-align:center;margin-top:12px}
+    .code{color:var(--yellow);font-weight:1000;letter-spacing:.12em}
+  </style>
+</head>
+<body>
+<main>
+  <h1>WORDS WITH ZEDD</h1>
+  <div class="sub">MOBILE PLAYER</div>
+
+  <section id="join-panel">
+    <label for="join-code">Game code</label>
+    <input id="join-code" maxlength="12" autocomplete="off" autocapitalize="characters" placeholder="ENTER GAME CODE">
+    <label for="player-name">Your player name</label>
+    <input id="player-name" maxlength="24" autocomplete="nickname" placeholder="ENTER YOUR NAME">
+    <button id="join-button" type="button">JOIN GAME</button>
+  </section>
+
+  <section id="game-panel" class="panel hidden">
+    <div style="text-align:center;font-weight:900">CONNECTED TO GAME <span id="game-code" class="code"></span></div>
+    <div id="letters" aria-label="Current game letters">••••••</div>
+    <label for="word-input">Your word</label>
+    <input id="word-input" maxlength="12" autocomplete="off" autocapitalize="characters" placeholder="TYPE A WORD">
+    <button id="submit-button" type="button">SUBMIT WORD</button>
+    <div class="hint">Words are checked by the live game. First valid submission wins.</div>
+  </section>
+
+  <div id="status" role="status" aria-live="polite">Scan the stream's QR code or enter the game code.</div>
+  <div class="hint">No app download required.</div>
+</main>
+<script>
+(() => {
+  const SUPABASE_URL = "https://wqdgxplujjylbolopokj.supabase.co";
+  const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_4K42_1Ut-Svhtk3wWjqrAg_cb-5dTHw";
+  const client = window.supabase.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
+  const $ = id => document.getElementById(id);
+  let activeCode = "";
+  let playerId = "";
+  let playerName = "";
+
+  function setStatus(message, isError = false) {
+    $("status").textContent = message;
+    $("status").style.color = isError ? "#fda4af" : "#67e8f9";
+  }
+
+  function getPlayerId() {
+    const key = "wos_mobile_player_id_v1";
+    let id = localStorage.getItem(key);
+    if (!id) {
+      id = (crypto.randomUUID ? crypto.randomUUID() : "p-" + Math.random().toString(36).slice(2) + Date.now().toString(36));
+      localStorage.setItem(key, id);
+    }
+    return id;
+  }
+
+  async function callGameFunction(payload) {
+    const { data, error } = await client.functions.invoke("super-service", { body: payload });
+    if (error) throw new Error(error.message || "Could not contact the game server.");
+    if (data && data.error) throw new Error(data.error);
+    return data;
+  }
+
+  async function joinGame() {
+    const code = $("join-code").value.trim().toUpperCase();
+    const name = $("player-name").value.trim();
+    if (!code) return setStatus("Enter the game code from the stream.", true);
+    if (!name) return setStatus("Enter a player name.", true);
+    if (name.length > 24) return setStatus("Player names must be 24 characters or fewer.", true);
+
+    $("join-button").disabled = true;
+    setStatus("Connecting to the game…");
+    try {
+      const result = await callGameFunction({ action: "get_session", join_code: code });
+      const session = result.session || result;
+      if (!session || session.status !== "active") throw new Error("That game is not active. Wait for the streamer to start a round.");
+      activeCode = code;
+      playerName = name;
+      playerId = getPlayerId();
+      $("game-code").textContent = code;
+      $("letters").textContent = session.board_letters || session.board_root || "Waiting for letters…";
+      $("join-panel").classList.add("hidden");
+      $("game-panel").classList.remove("hidden");
+      setStatus("You're in! Find words and submit them here.");
+      $("word-input").focus();
+    } catch (error) {
+      setStatus(error.message || "Unable to join this game.", true);
+    } finally {
+      $("join-button").disabled = false;
+    }
+  }
+
+  async function submitWord() {
+    const word = $("word-input").value.trim().toUpperCase();
+    if (!word) return setStatus("Type a word first.", true);
+    if (!/^[A-Z]{2,12}$/.test(word)) return setStatus("Use letters only.", true);
+
+    $("submit-button").disabled = true;
+    setStatus("Submitting " + word + "…");
+    try {
+      const result = await callGameFunction({
+        action: "submit_word",
+        join_code: activeCode,
+        player_id: playerId,
+        player_name: playerName,
+        word
+      });
+      $("word-input").value = "";
+      setStatus(result.message || (result.accepted ? "Word accepted!" : "Word not accepted."));
+      $("word-input").focus();
+    } catch (error) {
+      setStatus(error.message || "Submission failed. Try again.", true);
+    } finally {
+      $("submit-button").disabled = false;
+    }
+  }
+
+  $("join-button").addEventListener("click", joinGame);
+  $("submit-button").addEventListener("click", submitWord);
+  $("player-name").value = localStorage.getItem("wos_mobile_player_name_v1") || "";
+  $("player-name").addEventListener("change", () => localStorage.setItem("wos_mobile_player_name_v1", $("player-name").value.trim()));
+  $("word-input").addEventListener("keydown", event => { if (event.key === "Enter") submitWord(); });
+  $("join-code").value = new URLSearchParams(location.search).get("code") || "";
+  $("player-name").addEventListener("keydown", event => { if (event.key === "Enter") joinGame(); });
+})();
+</script>
+</body>
+</html>
