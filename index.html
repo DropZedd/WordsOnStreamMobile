@@ -68,6 +68,7 @@
   let pollTimer = null;
   let submitting = false;
   let sessionEnded = false;
+  const ACTIVE_CODE_KEY = "wos_mobile_active_code_v1";
 
   function setStatus(message, isError = false) {
     $("status").textContent = message;
@@ -142,6 +143,7 @@
       if (/no longer active|game not found|game has ended/i.test(error.message)) {
         sessionEnded = true;
         clearInterval(pollTimer);
+        localStorage.removeItem(ACTIVE_CODE_KEY);
         $("submit-button").disabled = true;
         setStatus("This game has ended. Thanks for playing!");
       } else if (!quiet) {
@@ -183,6 +185,7 @@
       playerName = name;
       playerId = getPlayerId();
 
+      localStorage.setItem(ACTIVE_CODE_KEY, activeCode);
       localStorage.setItem("wos_mobile_player_name_v1", playerName);
 
       $("game-code").textContent = code;
@@ -208,6 +211,45 @@
     }
   }
 
+  async function restoreActiveSession() {
+    const savedCode = localStorage.getItem(ACTIVE_CODE_KEY);
+    const savedName = localStorage.getItem("wos_mobile_player_name_v1") || "";
+    const urlCode = new URLSearchParams(location.search).get("code") || "";
+
+    // A newly scanned QR code for a different game takes precedence.
+    if (!savedCode || !savedName || (urlCode && urlCode.toUpperCase() !== savedCode)) {
+      if (urlCode) $("join-code").value = urlCode.toUpperCase();
+      return;
+    }
+
+    $("join-code").value = savedCode;
+    $("player-name").value = savedName;
+    setStatus("Reconnecting to your game…");
+
+    try {
+      const session = await callGameFunction({ action: "get_session", join_code: savedCode });
+      if (!session || session.status !== "active") {
+        localStorage.removeItem(ACTIVE_CODE_KEY);
+        setStatus("Your previous game has ended. Enter the new game code to join.");
+        return;
+      }
+
+      activeCode = savedCode;
+      playerName = savedName;
+      playerId = getPlayerId();
+      sessionEnded = false;
+      $("game-code").textContent = activeCode;
+      $("join-panel").classList.add("hidden");
+      $("game-panel").classList.remove("hidden");
+      showRound(session);
+      setStatus(session.board_letters ? "Reconnected! You're back in the game." : "Reconnected. Waiting for the next round…");
+      clearInterval(pollTimer);
+      pollTimer = setInterval(() => refreshSession(true), 2500);
+    } catch (error) {
+      // Preserve the saved code after temporary network/server errors.
+      setStatus("Couldn't reconnect right now. Your game code is saved—tap JOIN GAME to retry.", true);
+    }
+  }
   async function submitWord() {
     if (submitting || sessionEnded) return;
 
@@ -283,6 +325,8 @@
   $("player-name").addEventListener("keydown", event => {
     if (event.key === "Enter") joinGame();
   });
+
+  restoreActiveSession();
 })();
 </script>
 </body>
