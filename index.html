@@ -80,7 +80,7 @@
   function normalizePlayerName(value) {
     return String(value || "")
       .normalize("NFKD")
-      .replace(/[\\u0300-\\u036f]/g, "")
+      .replace(/[\u0300-\u036f]/g, "")
       .toLowerCase()
       .replace(/[0@]/g, "o")
       .replace(/[1!|]/g, "i")
@@ -161,7 +161,7 @@
       }
 
       if (
-        payload.action === "submit_word" &&
+        (payload.action === "submit_word" || payload.action === "get_session") &&
         /player name isn't allowed/i.test(message)
       ) {
         throw new Error("That player name isn't allowed. Please choose another name.");
@@ -195,6 +195,13 @@
 
     if (data && data.error) {
       const message = String(data.error);
+
+      if (
+        (payload.action === "submit_word" || payload.action === "get_session") &&
+        /player name isn't allowed/i.test(message)
+      ) {
+        throw new Error("That player name isn't allowed. Please choose another name.");
+      }
 
       if (
         payload.action === "submit_word" &&
@@ -245,7 +252,8 @@
     try {
       const session = await callGameFunction({
         action: "get_session",
-        join_code: activeCode
+        join_code: activeCode,
+        player_name: playerName
       });
 
       if (!session || session.status !== "active") {
@@ -296,7 +304,8 @@
     try {
       const session = await callGameFunction({
         action: "get_session",
-        join_code: code
+        join_code: code,
+        player_name: name
       });
 
       if (!session || session.status !== "active") {
@@ -349,7 +358,7 @@
     setStatus("Reconnecting to your game…");
 
     try {
-      const session = await callGameFunction({ action: "get_session", join_code: savedCode });
+      const session = await callGameFunction({ action: "get_session", join_code: savedCode, player_name: savedName });
       if (!session || session.status !== "active") {
         localStorage.removeItem(ACTIVE_CODE_KEY);
         setStatus("Your previous game has ended. Enter the new game code to join.");
