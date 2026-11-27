@@ -75,20 +75,35 @@
     $("status").style.color = isError ? "#fda4af" : "#67e8f9";
   }
 
-  // Conservative hate-speech name filter. Ordinary profanity is not blocked.
-  // Normalize common leetspeak and separators so simple disguises are caught.
+  // Normalize common disguises, Unicode lookalikes, accents, and separators.
+  const CONFUSABLE_CHAR_MAP = {
+    "а":"a","в":"b","с":"c","ԁ":"d","е":"e","һ":"h","і":"i","ј":"j",
+    "к":"k","ӏ":"l","м":"m","п":"n","о":"o","р":"p","ѕ":"s","т":"t",
+    "у":"y","х":"x","α":"a","β":"b","ϲ":"c","ε":"e","ι":"i","κ":"k",
+    "μ":"m","ν":"v","ο":"o","ρ":"p","τ":"t","υ":"y","χ":"x","ı":"i","ſ":"s"
+  };
+
   function normalizePlayerName(value) {
-    return String(value || "")
+    const normalized = String(value || "")
       .normalize("NFKD")
-      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/\p{M}/gu, "")
       .toLowerCase()
-      .replace(/[0@]/g, "o")
+      .replace(/[\u200B-\u200F\u202A-\u202E\u2060-\u206F\uFEFF]/g, "");
+
+    const mapped = Array.from(normalized)
+      .map(char => CONFUSABLE_CHAR_MAP[char] || char)
+      .join("");
+
+    return mapped
+      .replace(/0/g, "o")
       .replace(/[1!|]/g, "i")
-      .replace(/[3]/g, "e")
+      .replace(/3/g, "e")
       .replace(/[4@]/g, "a")
       .replace(/[5$]/g, "s")
+      .replace(/6/g, "g")
       .replace(/[7+]/g, "t")
-      .replace(/[8]/g, "b")
+      .replace(/8/g, "b")
+      .replace(/9/g, "g")
       .replace(/[^a-z0-9]/g, "");
   }
 
@@ -99,24 +114,29 @@
     "chink", "chinks", "wetback", "wetbacks",
     "coon", "coons", "gook", "gooks",
     "raghead", "ragheads", "towelhead", "towelheads",
-    "retard", "retards",
-    "nazis", "nazi", "kkk"
+    "retard", "retards", "nazi", "nazis", "kkk"
   ]);
+
+  // Match a blocked term even when letters are repeated to disguise it.
+  const BLOCKED_NAME_PATTERNS = [...BLOCKED_NAME_TERMS].map(
+    term => new RegExp(term.split("").map(char => char + "+").join(""))
+  );
 
   function isAllowedPlayerName(value) {
     const normalized = normalizePlayerName(value);
     if (!normalized) return false;
 
-    // Compare both the whole name and its separated word parts.
-    const parts = String(value || "")
-      .normalize("NFKD")
-      .toLowerCase()
-      .split(/[^a-z0-9]+/)
-      .filter(Boolean)
-      .map(normalizePlayerName);
+    // Block terms anywhere in the normalized name, including longer names.
+    for (const term of BLOCKED_NAME_TERMS) {
+      if (normalized.includes(term)) return false;
+    }
 
-    return !BLOCKED_NAME_TERMS.has(normalized) &&
-      !parts.some(part => BLOCKED_NAME_TERMS.has(part));
+    // Also block repeated-letter disguises, e.g. extra repeated characters.
+    for (const pattern of BLOCKED_NAME_PATTERNS) {
+      if (pattern.test(normalized)) return false;
+    }
+
+    return true;
   }
 
   function getPlayerId() {
