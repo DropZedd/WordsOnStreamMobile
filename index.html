@@ -162,6 +162,13 @@
 
       if (
         payload.action === "submit_word" &&
+        /player name isn't allowed/i.test(message)
+      ) {
+        throw new Error("That player name isn't allowed. Please choose another name.");
+      }
+
+      if (
+        payload.action === "submit_word" &&
         (statusCode === 400 || /word is not on this board|word not found|invalid word/i.test(message))
       ) {
         throw new Error("Word not found. Try another word!");
@@ -426,9 +433,9 @@
   $("player-name").addEventListener("change", () => {
     const name = $("player-name").value.trim();
     if (name && !isAllowedPlayerName(name)) {
-      $("player-name").value = "";
-      setStatus("That player name isn't allowed. Please choose another name.", true);
+      // Keep the entered name visible so joinGame can show the specific rejection.
       localStorage.removeItem("wos_mobile_player_name_v1");
+      setStatus("That player name isn't allowed. Please choose another name.", true);
       return;
     }
     localStorage.setItem("wos_mobile_player_name_v1", name);
