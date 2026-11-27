@@ -75,6 +75,50 @@
     $("status").style.color = isError ? "#fda4af" : "#67e8f9";
   }
 
+  // Conservative hate-speech name filter. Ordinary profanity is not blocked.
+  // Normalize common leetspeak and separators so simple disguises are caught.
+  function normalizePlayerName(value) {
+    return String(value || "")
+      .normalize("NFKD")
+      .replace(/[\\u0300-\\u036f]/g, "")
+      .toLowerCase()
+      .replace(/[0@]/g, "o")
+      .replace(/[1!|]/g, "i")
+      .replace(/[3]/g, "e")
+      .replace(/[4@]/g, "a")
+      .replace(/[5$]/g, "s")
+      .replace(/[7+]/g, "t")
+      .replace(/[8]/g, "b")
+      .replace(/[^a-z0-9]/g, "");
+  }
+
+  const BLOCKED_NAME_TERMS = new Set([
+    "nigger", "niggers", "nigga", "niggas",
+    "faggot", "faggots", "dyke", "tranny",
+    "kike", "kikes", "spic", "spics",
+    "chink", "chinks", "wetback", "wetbacks",
+    "coon", "coons", "gook", "gooks",
+    "raghead", "ragheads", "towelhead", "towelheads",
+    "retard", "retards",
+    "nazis", "nazi", "kkk"
+  ]);
+
+  function isAllowedPlayerName(value) {
+    const normalized = normalizePlayerName(value);
+    if (!normalized) return false;
+
+    // Compare both the whole name and its separated word parts.
+    const parts = String(value || "")
+      .normalize("NFKD")
+      .toLowerCase()
+      .split(/[^a-z0-9]+/)
+      .filter(Boolean)
+      .map(normalizePlayerName);
+
+    return !BLOCKED_NAME_TERMS.has(normalized) &&
+      !parts.some(part => BLOCKED_NAME_TERMS.has(part));
+  }
+
   function getPlayerId() {
     const key = "wos_mobile_player_id_v1";
     let id = localStorage.getItem(key);
@@ -235,6 +279,10 @@
       return setStatus("Player names must be 24 characters or fewer.", true);
     }
 
+    if (!isAllowedPlayerName(name)) {
+      return setStatus("That player name isn't allowed. Please choose another name.", true);
+    }
+
     $("join-button").disabled = true;
     setStatus("Connecting to the game…");
 
@@ -376,10 +424,14 @@
     localStorage.getItem("wos_mobile_player_name_v1") || "";
 
   $("player-name").addEventListener("change", () => {
-    localStorage.setItem(
-      "wos_mobile_player_name_v1",
-      $("player-name").value.trim()
-    );
+    const name = $("player-name").value.trim();
+    if (name && !isAllowedPlayerName(name)) {
+      $("player-name").value = "";
+      setStatus("That player name isn't allowed. Please choose another name.", true);
+      localStorage.removeItem("wos_mobile_player_name_v1");
+      return;
+    }
+    localStorage.setItem("wos_mobile_player_name_v1", name);
   });
 
   $("word-input").addEventListener("keydown", event => {
