@@ -117,9 +117,12 @@
     "retard", "retards", "nazi", "nazis", "kkk"
   ]);
 
-  // Match a blocked term even when letters are repeated to disguise it.
+  // Match blocked terms with repeated letters and common lookalikes.
+  // In particular, lowercase "l" can disguise the letter "i".
   const BLOCKED_NAME_PATTERNS = [...BLOCKED_NAME_TERMS].map(
-    term => new RegExp(term.split("").map(char => char + "+").join(""))
+    term => new RegExp(
+      term.split("").map(char => char === "i" ? "[il]+" : char + "+").join("")
+    )
   );
 
   function isAllowedPlayerName(value) {
